@@ -29,8 +29,6 @@ WEBSITES = [
   "https://*.haspar.us/*",
   "https://bear-fit.hasparus.workers.dev/*",
   "https://*-bear-fit.hasparus.workers.dev/*",
-  "https://bear-fit.hasparus.partykit.dev/*",
-  "https://*.bear-fit.hasparus.partykit.dev/*",
   "https://gryf3d.eu/*",
   "https://gist.mom/*",
 ]
