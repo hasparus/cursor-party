@@ -87,16 +87,16 @@ export class PresenceServer extends Server<Env> {
     };
   }
 
-  makeSyncMessage() {
-    const users = <Record<string, User>>{};
+  getUsers(): Record<string, User> {
+    const users: Record<string, User> = {};
     for (const connection of this.getConnections<ConnectionWithUser["state"]>()) {
       users[connection.id] = this.getUser(connection);
     }
+    return users;
+  }
 
-    return {
-      type: "sync",
-      users,
-    } satisfies PartyMessage;
+  makeSyncMessage() {
+    return { type: "sync", users: this.getUsers() } satisfies PartyMessage;
   }
 
   join(connection: ConnectionWithUser) {
@@ -188,11 +188,7 @@ export class PresenceServer extends Server<Env> {
   onRequest(req: Request) {
     if (req.method === "GET") {
       // For SSR, return the current presence of all connections
-      const users: Record<string, User> = {};
-      for (const connection of this.getConnections<ConnectionWithUser["state"]>()) {
-        users[connection.id] = this.getUser(connection);
-      }
-      return Response.json({ users }, { headers: CORS });
+      return Response.json({ users: this.getUsers() }, { headers: CORS });
     }
 
     // respond to cors preflight requests
@@ -205,6 +201,7 @@ export class PresenceServer extends Server<Env> {
 }
 
 function isAllowed(from: string, websites: string[]) {
+  if (!URL.canParse(from)) return false;
   const homeURL = new URL(from);
   if (["localhost", "127.0.0.1", "0.0.0.0"].includes(homeURL.hostname)) {
     return true;
