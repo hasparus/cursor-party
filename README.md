@@ -22,7 +22,7 @@ Type `/` to cursor chat with other users.
 $ pnpm install
 $ pnpm build    # bundles src/cursors.tsx into public/cursors.js
 $ pnpm dev      # wrangler dev on http://localhost:8787
-$ pnpm deploy   # wrangler deploy
+$ pnpm run deploy  # wrangler deploy
 ```
 
 Open http://localhost:8787 in two browsers to see the cursors.
