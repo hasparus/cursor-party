@@ -1,0 +1,36 @@
+name = "cursor-party"
+account_id = "d6ab64fe9bdf1199ece48f062c3802da"
+main = "src/server.ts"
+compatibility_date = "2026-10-01"
+workers_dev = true
+
+[build]
+command = "pnpm run build"
+
+[assets]
+directory = "public"
+binding = "ASSETS"
+
+[[durable_objects.bindings]]
+name = "main"
+class_name = "PresenceServer"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["PresenceServer"]
+
+[vars]
+# URLPattern inputs for the pages allowed to show cursors (localhost is always allowed)
+WEBSITES = [
+  "https://cursor-party.hasparus.workers.dev/*",
+  "https://(www.)?mageworld.vercel.app/*",
+  "https://mageworld-git-*-hasparus-projects.vercel.app/*",
+  "https://haspar.us/*",
+  "https://*.haspar.us/*",
+  "https://bear-fit.hasparus.workers.dev/*",
+  "https://*-bear-fit.hasparus.workers.dev/*",
+  "https://bear-fit.hasparus.partykit.dev/*",
+  "https://*.bear-fit.hasparus.partykit.dev/*",
+  "https://gryf3d.eu/*",
+  "https://gist.mom/*",
+]

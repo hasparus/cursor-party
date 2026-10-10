@@ -1,9 +1,14 @@
-import type * as Party from "partykit/server";
+import {
+  Server,
+  routePartykitRequest,
+  type Connection,
+  type ConnectionContext,
+  type WSMessage,
+} from "partyserver";
 import type {
   Metadata,
   Presence,
   User,
-  // ClientMessage,
   PartyMessage,
 } from "./presence/presence-schema";
 import {
@@ -12,7 +17,13 @@ import {
   encodePartyMessage,
 } from "./presence/presence-schema";
 
-export type ConnectionWithUser = Party.Connection<{
+type Env = {
+  main: DurableObjectNamespace<PresenceServer>;
+  ASSETS: Fetcher;
+  WEBSITES: string[];
+};
+
+export type ConnectionWithUser = Connection<{
   metadata?: Metadata;
   presence?: Presence;
 }>;
@@ -26,12 +37,8 @@ const CORS = {
     "Origin, X-Requested-With, Content-Type, Accept",
 };
 
-// server.ts
-export default class PresenceServer implements Party.Server {
-  constructor(public party: Party.Party) {}
-  options: Party.ServerOptions = {
-    hibernate: true,
-  };
+export class PresenceServer extends Server<Env> {
+  static options = { hibernate: true };
 
   // pending updates are stored in memory and sent every tick
   add: { [id: string]: User } = {};
@@ -41,83 +48,23 @@ export default class PresenceServer implements Party.Server {
   lastBroadcast = 0;
   interval: ReturnType<typeof setInterval> | null = null;
 
-  static onBeforeConnect(req: Party.Request, lobby: Party.Lobby) {
-    // we assume that the request url is encoded into the request query param
-    const encodedHomeURL = new URL(req.url).searchParams.get("from");
-
-    if (!encodedHomeURL) {
-      return new Response("Not Allowed", { status: 403 });
-    }
-
-    const homeURL = new URL(decodeURIComponent(encodedHomeURL));
-
-    const WEBSITES = JSON.parse(
-      (lobby.env.WEBSITES || "[]") as string
-    ) as string[];
-
-    if (["localhost", "127.0.0.1", "0.0.0.0"].includes(homeURL.hostname)) {
-      return req;
-    }
-
-    const matchWith = homeURL.origin + homeURL.pathname;
-
-    const patterns = WEBSITES.map((site) => {
-      try {
-        // @ts-expect-error - URLPattern is not in the TS lib
-        return new URLPattern(site);
-      } catch (e) {
-        console.log(
-          `
-
-⚠️  Invalid URL pattern "${site}" in .env -> WEBSITES. 
-It should be a valid input to new URLPattern(). 
-Learn more: https://developer.mozilla.org/en-US/docs/Web/API/URL_Pattern_API
-
-`
-        );
-        throw e;
-      }
-    });
-
-    const allowed = patterns.some((pattern) => pattern.test(matchWith));
-    if (!allowed) {
-      const errMessage = `The URL ${matchWith} does not match any allowed pattern from ${lobby.env.WEBSITES}`;
-      // @ts-expect-error we're using dom types here. apparently
-      const pair = new WebSocketPair();
-      pair[1].accept();
-      pair[1].close(1011, errMessage || "Uncaught exception when connecting");
-      return new Response(null, {
-        status: 101,
-        // @ts-expect-error we're using dom types here. apparently
-        webSocket: pair[0],
-      });
-    }
-
-    return req;
-  }
-
-  onConnect(
-    connection: Party.Connection,
-    { request }: Party.ConnectionContext
-  ): void | Promise<void> {
+  onConnect(connection: ConnectionWithUser, { request }: ConnectionContext) {
     const metadata = { country: request.cf?.country ?? null } as Metadata;
 
     // The client may set name and color (from the presence object) in the query string
-    const params = new URLSearchParams(request.url.split("?")[1]);
+    const params = new URL(request.url).searchParams;
     const presence = {
       name: params.get("name") ?? undefined,
       color: params.get("color"),
     } as Presence;
 
     // Stash the metadata and the presence on the websocket
-    connection.setState((prevState: User) => ({
+    connection.setState((prevState) => ({
       presence: { ...prevState?.presence, ...presence },
       metadata,
     }));
 
     this.join(connection);
-
-    //console.log("onConnect", this.party.id, connection.id, request.cf?.country);
   }
 
   enqueueAdd(id: string, user: User) {
@@ -141,11 +88,9 @@ Learn more: https://developer.mozilla.org/en-US/docs/Web/API/URL_Pattern_API
   }
 
   makeSyncMessage() {
-    // Build users list
     const users = <Record<string, User>>{};
-    for (const connection of this.party.getConnections()) {
-      const user = this.getUser(connection);
-      users[connection.id] = user;
+    for (const connection of this.getConnections<ConnectionWithUser["state"]>()) {
+      users[connection.id] = this.getUser(connection);
     }
 
     return {
@@ -155,57 +100,33 @@ Learn more: https://developer.mozilla.org/en-US/docs/Web/API/URL_Pattern_API
   }
 
   join(connection: ConnectionWithUser) {
-    // Keep the presence on the websocket. onConnect will add metadata
-    connection.setState((prevState) => ({
-      ...prevState,
-      presence: connection.state?.presence ?? ({} as Presence),
-    }));
     this.enqueueAdd(connection.id, this.getUser(connection));
     // Reply with the current presence of all connections, including self
-    const sync = this.makeSyncMessage();
-    //connection.send(JSON.stringify(sync));
-    //console.log("sync", JSON.stringify(sync, null, 2));
-    connection.send(encodePartyMessage(sync));
+    connection.send(encodePartyMessage(this.makeSyncMessage()));
   }
 
   leave(connection: ConnectionWithUser) {
     this.enqueueRemove(connection.id);
-    this.broadcast().catch((err) => {
-      console.error(err);
-    });
+    this.broadcastChanges();
   }
 
-  onMessage(
-    msg: string | ArrayBufferLike,
-    connection: ConnectionWithUser
-  ): void | Promise<void> {
-    //const message = JSON.parse(msg as string) as ClientMessage;
+  onMessage(connection: ConnectionWithUser, msg: WSMessage) {
     const result = clientMessageSchema.safeParse(decodeMessage(msg));
     if (!result.success) return;
     const message = result.data;
-    /*console.log(
-      "onMessage",
-      this.party.id,
-      connection.id,
-      JSON.stringify(message, null, 2)
-    );*/
     switch (message.type) {
       case "update": {
         // A presence update, replacing the existing presence
-        connection.setState((prevState) => {
-          this.enqueuePresence(connection.id, message.presence);
-          return {
-            ...prevState,
-            presence: message.presence,
-          };
-        });
+        this.enqueuePresence(connection.id, message.presence);
+        connection.setState((prevState) => ({
+          ...prevState,
+          presence: message.presence,
+        }));
         break;
       }
     }
 
-    this.broadcast().catch((err) => {
-      console.error(err);
-    });
+    this.broadcastChanges();
   }
 
   onClose(connection: ConnectionWithUser) {
@@ -216,34 +137,30 @@ Learn more: https://developer.mozilla.org/en-US/docs/Web/API/URL_Pattern_API
     this.leave(connection);
   }
 
-  async broadcast() {
+  broadcastChanges() {
     // Broadcasts deltas. Looks at lastBroadcast
     // - If it's longer ago than BROADCAST_INTERVAL, broadcasts immediately
-    // - If it's less than BROADCAST_INTERVAL ago, schedules an alarm
-    //   to broadcast later
-    const now = Date.now();
-    const ago = now - this.lastBroadcast;
+    // - If it's less than BROADCAST_INTERVAL ago, schedules a broadcast later
+    const ago = Date.now() - this.lastBroadcast;
     if (ago >= BROADCAST_INTERVAL) {
-      this._broadcast();
-    } else {
-      if (!this.interval) {
-        this.interval = setInterval(() => {
-          this._broadcast();
-          if (this.interval) {
-            clearInterval(this.interval);
-            this.interval = null;
-          }
-        }, BROADCAST_INTERVAL - ago);
-      }
+      this.flush();
+    } else if (!this.interval) {
+      this.interval = setInterval(() => {
+        this.flush();
+        if (this.interval) {
+          clearInterval(this.interval);
+          this.interval = null;
+        }
+      }, BROADCAST_INTERVAL - ago);
     }
   }
 
-  _broadcast() {
+  flush() {
     this.lastBroadcast = Date.now();
 
     // Avoid the situation where there's only one connection and we're
     // rebroadcasting its own deltas to it
-    const connections = [...this.party.getConnections()];
+    const connections = [...this.getConnections()];
     const presenceUniqueIds = new Set(Object.keys(this.presence));
     if (
       connections.length === 1 &&
@@ -262,30 +179,71 @@ Learn more: https://developer.mozilla.org/en-US/docs/Web/API/URL_Pattern_API
       presence: this.presence,
       remove: this.remove,
     } satisfies PartyMessage;
-    //this.party.broadcast(JSON.stringify(update));
-    this.party.broadcast(encodePartyMessage(update));
+    this.broadcast(encodePartyMessage(update));
     this.add = {};
     this.presence = {};
     this.remove = [];
   }
 
-  async onRequest(req: Party.Request) {
+  onRequest(req: Request) {
     if (req.method === "GET") {
       // For SSR, return the current presence of all connections
-      const users = [...this.party.getConnections()].reduce(
-        (acc, user) => ({ ...acc, [user.id]: this.getUser(user) }),
-        {}
-      );
-      return Response.json({ users }, { status: 200, headers: CORS });
+      const users: Record<string, User> = {};
+      for (const connection of this.getConnections<ConnectionWithUser["state"]>()) {
+        users[connection.id] = this.getUser(connection);
+      }
+      return Response.json({ users }, { headers: CORS });
     }
 
     // respond to cors preflight requests
     if (req.method === "OPTIONS") {
-      return Response.json({ ok: true }, { status: 200, headers: CORS });
+      return Response.json({ ok: true }, { headers: CORS });
     }
 
     return new Response("Method Not Allowed", { status: 405 });
   }
 }
 
-PresenceServer satisfies Party.Worker;
+function isAllowed(from: string, websites: string[]) {
+  const homeURL = new URL(from);
+  if (["localhost", "127.0.0.1", "0.0.0.0"].includes(homeURL.hostname)) {
+    return true;
+  }
+
+  const matchWith = homeURL.origin + homeURL.pathname;
+  return websites.some((site) => new URLPattern(site).test(matchWith));
+}
+
+function reject() {
+  // close the socket with a reason, so the browser can log why
+  const [client, server] = Object.values(new WebSocketPair());
+  server.accept();
+  server.close(1008, "This page is not in the WEBSITES allowlist");
+  return new Response(null, { status: 101, webSocket: client });
+}
+
+export default {
+  async fetch(req, env) {
+    const url = new URL(req.url);
+
+    if (url.pathname === "/meta.js") {
+      return new Response(
+        `window.__WEBSITES__ = ${JSON.stringify(JSON.stringify(env.WEBSITES))};`,
+        { headers: { "Content-Type": "text/javascript" } }
+      );
+    }
+
+    return (
+      (await routePartykitRequest(req, env, {
+        onBeforeConnect(req) {
+          // the page the cursors are on is passed in the "from" query param
+          const from = new URL(req.url).searchParams.get("from");
+          if (!from) return new Response("Not Allowed", { status: 403 });
+          if (!isAllowed(from, env.WEBSITES)) {
+            return reject();
+          }
+        },
+      })) ?? env.ASSETS.fetch(req)
+    );
+  },
+} satisfies ExportedHandler<Env>;

@@ -3,7 +3,10 @@ import { createRoot } from "react-dom/client";
 import PresenceProvider from "./presence/presence-context";
 import Cursors from "./presence/Cursors";
 
-declare const PARTYKIT_HOST: string;
+// connect to wherever this script is served from
+const host = document.currentScript
+  ? new URL((document.currentScript as HTMLScriptElement).src).host
+  : window.location.host;
 
 const rainbow24 = [
   "#FF0000",
@@ -37,13 +40,13 @@ const chooseRandom = (arr: string[]) => {
 };
 
 const pageId = window?.location.href
-  ? btoa(window.location.href.split(/[?#]/)[0])
+  ? encodeURIComponent(btoa(window.location.href.split(/[?#]/)[0]))
   : "default";
 
 function App() {
   return (
     <PresenceProvider
-      host={PARTYKIT_HOST}
+      host={host}
       room={pageId}
       presence={{ name: "Anonymous User", color: chooseRandom(rainbow24) }}
     >
