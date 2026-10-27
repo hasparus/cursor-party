@@ -71,12 +71,13 @@ function mount() {
   // waits for the DOM to be ready before loading
   // so we need to wait for that before rendering our app
   const root = createRoot(cursorsRoot);
-  root.render(<App />);
-  document.addEventListener("DOMContentLoaded", () => {
-    if (cursorsRoot.isConnected) root.render(<App />);
-  });
+  const render = () => root.render(<App />);
+  render();
+  document.addEventListener("DOMContentLoaded", render);
 
   return () => {
+    // the listener would keep this whole bundle alive after unmount
+    document.removeEventListener("DOMContentLoaded", render);
     root.unmount();
     cursorsRoot.remove();
   };

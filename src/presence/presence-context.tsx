@@ -205,22 +205,28 @@ export default function PresenceProvider(props: {
     },
     onMessage: (event) => handleMessage(event),
 
+    // log strings only: browsers keep logged objects alive, and an event
+    // would keep this whole bundle in memory after the cursors unmount
     onClose: (e) =>
       console.warn(
         "Socket closed:",
-        e.reason ||
-          // @ts-ignore
-          e.error ||
-          e
+        String(
+          e.reason ||
+            // @ts-ignore
+            e.error ||
+            e.code
+        )
       ),
     onError: (e) =>
       console.error(
         "Socket error:",
-        // @ts-ignore
-        e.reason ||
+        String(
           // @ts-ignore
-          e.error ||
-          e
+          e.reason ||
+            // @ts-ignore
+            e.error ||
+            e.type
+        )
       ),
   });
 

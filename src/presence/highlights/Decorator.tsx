@@ -32,6 +32,10 @@ export default function Decorator({
     const highlight = new Highlight(...ranges);
     // @ts-ignore
     CSS.highlights.set("highlight-party", highlight);
+    return () => {
+      // @ts-ignore
+      CSS.highlights.delete("highlight-party");
+    };
   }, [otherSelections]);
 
   return null;
