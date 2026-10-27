@@ -3,10 +3,10 @@ import { createRoot } from "react-dom/client";
 import PresenceProvider from "./presence/presence-context";
 import Cursors from "./presence/Cursors";
 
+const script = document.currentScript as HTMLScriptElement | null;
+
 // connect to wherever this script is served from
-const host = document.currentScript
-  ? new URL((document.currentScript as HTMLScriptElement).src).host
-  : window.location.host;
+const host = script ? new URL(script.src).host : window.location.host;
 
 const rainbow24 = [
   "#FF0000",
@@ -39,8 +39,11 @@ const chooseRandom = (arr: string[]) => {
   return arr[Math.floor(Math.random() * arr.length)];
 };
 
-const pageId = window?.location.href
-  ? encodeURIComponent(btoa(window.location.href.split(/[?#]/)[0]))
+// `data-room` splits one page into many rooms, e.g. one per document
+const pageUrl = window?.location.href.split(/[?#]/)[0];
+const room = script?.dataset.room;
+const pageId = pageUrl
+  ? encodeURIComponent(btoa(room ? `${pageUrl}#${room}` : pageUrl))
   : "default";
 
 function App() {
@@ -55,19 +58,39 @@ function App() {
   );
 }
 
-const cursorsRoot = document.createElement("div");
-document.body.appendChild(cursorsRoot);
-// cursors display is absolute and needs a top-level relative container
-document.documentElement.style.position = "relative";
-document.documentElement.style.minHeight = "100dvh";
-// add a classname
-cursorsRoot.classList.add("cursors-root");
+function mount() {
+  const cursorsRoot = document.createElement("div");
+  document.body.appendChild(cursorsRoot);
+  // cursors display is absolute and needs a top-level relative container
+  document.documentElement.style.position = "relative";
+  document.documentElement.style.minHeight = "100dvh";
+  // add a classname
+  cursorsRoot.classList.add("cursors-root");
 
-// rangy has it's own weird module system, that
-// waits for the DOM to be ready before loading
-// so we need to wait for that before rendering our app
-const root = createRoot(cursorsRoot);
-root.render(<App />);
-document.addEventListener("DOMContentLoaded", () => {
+  // rangy has it's own weird module system, that
+  // waits for the DOM to be ready before loading
+  // so we need to wait for that before rendering our app
+  const root = createRoot(cursorsRoot);
   root.render(<App />);
-});
+  document.addEventListener("DOMContentLoaded", () => {
+    if (cursorsRoot.isConnected) root.render(<App />);
+  });
+
+  return () => {
+    root.unmount();
+    cursorsRoot.remove();
+  };
+}
+
+// removing the script tag removes the cursors and leaves the room
+const parent = script ? script.parentNode : document.body;
+if (parent) {
+  const unmount = mount();
+  if (script) {
+    new MutationObserver((_, observer) => {
+      if (script.isConnected) return;
+      observer.disconnect();
+      unmount();
+    }).observe(parent, { childList: true });
+  }
+}

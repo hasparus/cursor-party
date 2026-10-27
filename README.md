@@ -14,6 +14,8 @@ Add the script tag just before the closing `</body>`:
 
 The script connects to the origin it's served from. Only pages matching `WEBSITES` in `wrangler.toml` (URL patterns, see the [URL Pattern API](https://developer.mozilla.org/en-US/docs/Web/API/URL_Pattern_API)) can connect; localhost is always allowed.
 
+By default everyone on the same page (URL without query or hash) shares one room. Add `data-room="..."` to the script tag to split a page into rooms, e.g. one per document. Removing the script tag removes the cursors and leaves the room.
+
 Type `/` to cursor chat with other users.
 
 ## Development
