@@ -6,7 +6,7 @@ TODO:
 - provide a default room name from the href
 */
 import * as React from "react";
-import { useEffect, createContext } from "react";
+import { useEffect, useRef, createContext } from "react";
 import usePartySocket from "partysocket/react";
 import { create } from "zustand";
 import {
@@ -128,6 +128,16 @@ export const usePresence = create<PresenceStoreType>((set) => ({
   },
 }));
 
+/** Forgets the current room's users, e.g. before joining another room. */
+export const resetPresence = () =>
+  usePresence.setState({
+    myId: null,
+    myself: null,
+    synced: false,
+    pendingUpdate: null,
+    otherUsers: new Map(),
+  });
+
 export const PresenceContext = createContext({});
 
 export default function PresenceProvider(props: {
@@ -167,6 +177,10 @@ export default function PresenceProvider(props: {
     }
   };
 
+  // a message decoded after leaving the room must not reach the next room
+  const left = useRef(false);
+  useEffect(() => () => void (left.current = true), []);
+
   const handleMessage = async (event: MessageEvent) => {
     //const message = JSON.parse(event.data) as PartyMessage;
     const data =
@@ -175,6 +189,7 @@ export default function PresenceProvider(props: {
           decodeMessage(await event.data.arrayBuffer())
         : // string -> json
           JSON.parse(event.data);
+    if (left.current) return;
 
     const result = partyMessageSchema.safeParse(data);
     if (!result.success) return;
