@@ -6,7 +6,7 @@ TODO:
 - provide a default room name from the href
 */
 import * as React from "react";
-import { useEffect, createContext } from "react";
+import { useEffect, useRef, createContext } from "react";
 import usePartySocket from "partysocket/react";
 import { create } from "zustand";
 import {
@@ -167,6 +167,10 @@ export default function PresenceProvider(props: {
     }
   };
 
+  // a message decoded after leaving the room must not reach the next room
+  const left = useRef(false);
+  useEffect(() => () => void (left.current = true), []);
+
   const handleMessage = async (event: MessageEvent) => {
     //const message = JSON.parse(event.data) as PartyMessage;
     const data =
@@ -175,6 +179,7 @@ export default function PresenceProvider(props: {
           decodeMessage(await event.data.arrayBuffer())
         : // string -> json
           JSON.parse(event.data);
+    if (left.current) return;
 
     const result = partyMessageSchema.safeParse(data);
     if (!result.success) return;
@@ -205,22 +210,28 @@ export default function PresenceProvider(props: {
     },
     onMessage: (event) => handleMessage(event),
 
+    // log strings only: browsers keep logged objects alive, and an event
+    // would keep its closed socket in memory after every room switch
     onClose: (e) =>
       console.warn(
         "Socket closed:",
-        e.reason ||
-          // @ts-ignore
-          e.error ||
-          e
+        String(
+          e.reason ||
+            // @ts-ignore
+            e.error ||
+            e.code
+        )
       ),
     onError: (e) =>
       console.error(
         "Socket error:",
-        // @ts-ignore
-        e.reason ||
+        String(
           // @ts-ignore
-          e.error ||
-          e
+          e.reason ||
+            // @ts-ignore
+            e.error ||
+            e.type
+        )
       ),
   });
 

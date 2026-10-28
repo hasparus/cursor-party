@@ -19,6 +19,24 @@ export const usePresenceWithCursors = create<PresenceWithCursorsStore>(() => ({
   within: "window",
 }));
 
+/** Forgets the current room's users, e.g. before joining another room. */
+export function resetRoom() {
+  usePresence.setState({
+    myId: null,
+    myself: null,
+    synced: false,
+    pendingUpdate: null,
+    otherUsers: new Map(),
+  });
+  // the cursors render from this store, so clear it too, or the old room's
+  // cursors paint until the new room's first effect runs
+  usePresenceWithCursors.setState({
+    myId: null,
+    myself: null,
+    otherUsers: new Map(),
+  });
+}
+
 /*
 We can track and display cursors relative to one of three reference frames:
 

@@ -1,12 +1,14 @@
 import * as React from "react";
+import { useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
 import PresenceProvider from "./presence/presence-context";
 import Cursors from "./presence/Cursors";
+import { resetRoom } from "./presence/use-cursors";
+
+const script = document.currentScript as HTMLScriptElement | null;
 
 // connect to wherever this script is served from
-const host = document.currentScript
-  ? new URL((document.currentScript as HTMLScriptElement).src).host
-  : window.location.host;
+const host = script ? new URL(script.src).host : window.location.host;
 
 const rainbow24 = [
   "#FF0000",
@@ -39,16 +41,45 @@ const chooseRandom = (arr: string[]) => {
   return arr[Math.floor(Math.random() * arr.length)];
 };
 
-const pageId = window?.location.href
-  ? encodeURIComponent(btoa(window.location.href.split(/[?#]/)[0]))
-  : "default";
+// `data-room` splits one page into rooms, e.g. one per document. Changing it
+// switches rooms without re-running this script, and "" leaves the room.
+const pageUrl = window?.location.href.split(/[?#]/)[0];
+const roomId = (room: string | undefined) => {
+  if (!pageUrl) return "default";
+  // btoa only takes Latin-1, so encode the room first
+  const url = room ? `${pageUrl}#${encodeURIComponent(room)}` : pageUrl;
+  return encodeURIComponent(btoa(url));
+};
+
+const presence = { name: "Anonymous User", color: chooseRandom(rainbow24) };
 
 function App() {
+  const [room, setRoom] = useState(script?.dataset.room);
+
+  useEffect(() => {
+    if (!script) return;
+    let current = room;
+    const sync = () => {
+      if (script.dataset.room === current) return;
+      current = script.dataset.room;
+      // forget the old room's users before the new room's sync arrives
+      resetRoom();
+      setRoom(current);
+    };
+    const observer = new MutationObserver(sync);
+    observer.observe(script, { attributeFilter: ["data-room"] });
+    sync(); // catch a change made before the observer started
+    return () => observer.disconnect();
+  }, []);
+
+  if (room === "") return null;
+
   return (
     <PresenceProvider
+      key={room}
       host={host}
-      room={pageId}
-      presence={{ name: "Anonymous User", color: chooseRandom(rainbow24) }}
+      room={roomId(room)}
+      presence={presence}
     >
       <Cursors />
     </PresenceProvider>
