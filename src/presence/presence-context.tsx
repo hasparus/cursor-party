@@ -128,16 +128,6 @@ export const usePresence = create<PresenceStoreType>((set) => ({
   },
 }));
 
-/** Forgets the current room's users, e.g. before joining another room. */
-export const resetPresence = () =>
-  usePresence.setState({
-    myId: null,
-    myself: null,
-    synced: false,
-    pendingUpdate: null,
-    otherUsers: new Map(),
-  });
-
 export const PresenceContext = createContext({});
 
 export default function PresenceProvider(props: {
@@ -221,7 +211,7 @@ export default function PresenceProvider(props: {
     onMessage: (event) => handleMessage(event),
 
     // log strings only: browsers keep logged objects alive, and an event
-    // would keep this whole bundle in memory after the cursors unmount
+    // would keep its closed socket in memory after every room switch
     onClose: (e) =>
       console.warn(
         "Socket closed:",

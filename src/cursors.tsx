@@ -1,8 +1,9 @@
 import * as React from "react";
 import { useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
-import PresenceProvider, { resetPresence } from "./presence/presence-context";
+import PresenceProvider from "./presence/presence-context";
 import Cursors from "./presence/Cursors";
+import { resetRoom } from "./presence/use-cursors";
 
 const script = document.currentScript as HTMLScriptElement | null;
 
@@ -43,10 +44,12 @@ const chooseRandom = (arr: string[]) => {
 // `data-room` splits one page into rooms, e.g. one per document. Changing it
 // switches rooms without re-running this script, and "" leaves the room.
 const pageUrl = window?.location.href.split(/[?#]/)[0];
-const roomId = (room: string | undefined) =>
-  pageUrl
-    ? encodeURIComponent(btoa(room ? `${pageUrl}#${room}` : pageUrl))
-    : "default";
+const roomId = (room: string | undefined) => {
+  if (!pageUrl) return "default";
+  // btoa only takes Latin-1, so encode the room first
+  const url = room ? `${pageUrl}#${encodeURIComponent(room)}` : pageUrl;
+  return encodeURIComponent(btoa(url));
+};
 
 const presence = { name: "Anonymous User", color: chooseRandom(rainbow24) };
 
@@ -60,7 +63,7 @@ function App() {
       if (script.dataset.room === current) return;
       current = script.dataset.room;
       // forget the old room's users before the new room's sync arrives
-      resetPresence();
+      resetRoom();
       setRoom(current);
     };
     const observer = new MutationObserver(sync);
@@ -83,40 +86,19 @@ function App() {
   );
 }
 
-function mount() {
-  const cursorsRoot = document.createElement("div");
-  document.body.appendChild(cursorsRoot);
-  // cursors display is absolute and needs a top-level relative container
-  document.documentElement.style.position = "relative";
-  document.documentElement.style.minHeight = "100dvh";
-  // add a classname
-  cursorsRoot.classList.add("cursors-root");
+const cursorsRoot = document.createElement("div");
+document.body.appendChild(cursorsRoot);
+// cursors display is absolute and needs a top-level relative container
+document.documentElement.style.position = "relative";
+document.documentElement.style.minHeight = "100dvh";
+// add a classname
+cursorsRoot.classList.add("cursors-root");
 
-  // rangy has it's own weird module system, that
-  // waits for the DOM to be ready before loading
-  // so we need to wait for that before rendering our app
-  const root = createRoot(cursorsRoot);
-  const render = () => root.render(<App />);
-  render();
-  document.addEventListener("DOMContentLoaded", render);
-
-  return () => {
-    // the listener would keep this whole bundle alive after unmount
-    document.removeEventListener("DOMContentLoaded", render);
-    root.unmount();
-    cursorsRoot.remove();
-  };
-}
-
-// removing the script tag removes the cursors and leaves the room
-const parent = script ? script.parentNode : document.body;
-if (parent) {
-  const unmount = mount();
-  if (script) {
-    new MutationObserver((_, observer) => {
-      if (script.isConnected) return;
-      observer.disconnect();
-      unmount();
-    }).observe(parent, { childList: true });
-  }
-}
+// rangy has it's own weird module system, that
+// waits for the DOM to be ready before loading
+// so we need to wait for that before rendering our app
+const root = createRoot(cursorsRoot);
+root.render(<App />);
+document.addEventListener("DOMContentLoaded", () => {
+  root.render(<App />);
+});
